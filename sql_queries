@@ -1,0 +1,47 @@
+#Choosing only the first ICU stays of each hospital admittance
+
+WITH firstICUonly AS (
+    SELECT *, 
+           ROW_NUMBER() OVER(PARTITION BY p.patienthealthsystemstayid  
+                                 ORDER BY p.patientunitstayid  ASC) AS icunumbers
+      FROM `physionet-data.eicu_crd.patient` p)
+SELECT s.*
+FROM firstICUonly s
+WHERE s.icunumbers = 1
+
+#Feature transformation (BMI)
+
+SELECT a.gender, a.age, a.ethnicity, (a.admissionweight / POW((a.admissionheight/100),2)) as bmi FROM `physionet-data.eicu_crd.patient`  as a
+RIGHT JOIN `team02bloodpressure.datathon.selectedstay_new` as b
+ON a.patientunitstayid = b.patientunitstayid
+WHERE a.admissionheight != 0
+
+#Text parsing for medical conditions using LIKE and regex
+
+SELECT
+b.patientunitstayid,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%hypertension%' THEN 1 ELSE 0 END)) AS hypertension,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%atrial fibrillation%' THEN 1 ELSE 0 END)) AS atrial_fibrillation,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%cancer%' THEN 1 ELSE 0 END)) AS cancer,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%congestive heart failure%' THEN 1 ELSE 0 END)) AS chf,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%COPD%' THEN 1 ELSE 0 END)) AS COPD,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%diabetes%' THEN 1 ELSE 0 END)) AS diabetes,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%renal failure%' THEN 1 ELSE 0 END)) AS renal_failure,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%myocardial infarction%' THEN 1 ELSE 0 END)) AS myocardial_infarction,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%coronary%' THEN 1 ELSE 0 END)) AS coronary,
+MAX((CASE WHEN LOWER(b.pasthistorypath) LIKE'%angina%' THEN 1 ELSE 0 END)) AS angina
+FROM `team02bloodpressure.datathon.selectedstay_new` as a
+LEFT JOIN `physionet-data.eicu_crd.pasthistory` as b
+ON b.patientunitstayid = a.patientunitstayid
+GROUP BY b.patientunitstayid
+
+#Selecting median blood pressure values
+
+SELECT qid, max(medianHR) as medianHR, max(medianARS), max(medianARD), max(medianARM)
+FROM(SELECT qid,
+PERCENTILE_CONT(hr, 0.5) OVER(PARTITION BY qid) as medianHR,
+PERCENTILE_CONT(ARS, 0.5) OVER(PARTITION BY qid) as medianARS,
+PERCENTILE_CONT(ARD,0.5) OVER(PARTITION BY qid) AS medianARD,
+PERCENTILE_CONT(ARM,0.5) OVER(PARTITION BY qid) AS medianARM
+FROM `team02bloodpressure.datathon.AR_bp`)
+GROUP BY qid
